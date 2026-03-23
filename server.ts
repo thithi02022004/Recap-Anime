@@ -43,6 +43,7 @@ app.post('/api/run', (req, res) => {
       const videoExts = ['.mp4', '.mkv', '.webm', '.avi', '.ts', '.mov'];
       rawFiles = files
         .filter(f => videoExts.includes(path.extname(f).toLowerCase()))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
         .map(f => path.join(rawInput, f));
       
       if (rawFiles.length === 0) {
