@@ -1,0 +1,5 @@
+{
+  "name": "Anime Recap Aligner",
+  "description": "A tool to automatically find matching scenes between an edited recap video and a raw anime episode, generating an FFmpeg script to cut the raw video.",
+  "requestFramePermissions": []
+}
