@@ -402,7 +402,7 @@ Ví dụ:
         """,
     )
     parser.add_argument("--edited",    required=True,  help="Đường dẫn video recap đã edit")
-    parser.add_argument("--raw",       required=True,  help="Đường dẫn tập anime raw gốc")
+    parser.add_argument("--raw",       required=True, nargs="+", help="Đường dẫn các tập anime raw gốc (có thể nhập nhiều file, vd: ep1.mp4 ep2.mp4)")
     parser.add_argument("--output",    default=None,   help="Thư mục output (mặc định: cuts/ cạnh file raw)")
     parser.add_argument("--fps",       type=int,   default=3,    help="Số frame/giây để phân tích (default: 3)")
     parser.add_argument("--threshold", type=float, default=15.0, help="Ngưỡng khớp %% (default: 15, càng nhỏ càng chặt)")
@@ -413,20 +413,26 @@ Ví dụ:
     args = parser.parse_args()
 
     # Kiểm tra file tồn tại
-    for label, path in [("--edited", args.edited), ("--raw", args.raw)]:
-        if not os.path.exists(path):
-            print(f"❌ Không tìm thấy file {label}: {path}")
+    if not os.path.exists(args.edited):
+        print(f"❌ Không tìm thấy file Edited: {args.edited}")
+        sys.exit(1)
+        
+    for raw_path in args.raw:
+        if not os.path.exists(raw_path):
+            print(f"❌ Không tìm thấy file Raw: {raw_path}")
             sys.exit(1)
 
     device = detect_device(args.device)
-    output_dir = args.output or str(Path(args.raw).parent / "cuts")
 
     print("=" * 60)
     print("🎬 Anime Recap Aligner")
     print("=" * 60)
     print(f"   Edited  : {args.edited}")
-    print(f"   Raw     : {args.raw}")
-    print(f"   Output  : {output_dir}")
+    print(f"   Raw     : {len(args.raw)} tập ({', '.join([Path(p).name for p in args.raw])})")
+    if args.output:
+        print(f"   Output  : {args.output}/video_cut_[tên_tập]")
+    else:
+        print(f"   Output  : video_cut_[tên_tập] (cạnh mỗi file Raw)")
     print(f"   Device  : {device.upper()}")
     fp16_note = " + fp16 (Tensor Cores)" if device == "cuda" else ""
     print(f"   Model   : CLIP ViT-B/32{fp16_note}")
@@ -440,53 +446,63 @@ Ví dụ:
 
     # 2. Trích xuất embeddings
     edited_frames = extract_embeddings(args.edited, args.fps, model, processor, device, "Edited", args.batch)
-    raw_frames    = extract_embeddings(args.raw,    args.fps, model, processor, device, "Raw",    args.batch)
-
-    if len(edited_frames) == 0 or len(raw_frames) == 0:
-        print("\n❌ LỖI: Không trích xuất được khung hình nào từ một trong 2 video.")
-        print("Có thể file video bị hỏng (0 bytes) hoặc đuôi video (như .webm) không được hỗ trợ xử lý!")
+    if len(edited_frames) == 0:
+        print("\n❌ LỖI: Không trích xuất được khung hình nào từ recap edited.")
         sys.exit(1)
 
-    # 3. So khớp
-    segments = find_matches(edited_frames, raw_frames, args.threshold)
-
-    if not segments:
-        print("\n❌ Không tìm thấy cảnh khớp. Thử tăng --threshold.")
-        sys.exit(0)
-
-    # In bảng kết quả
-    print(f"\n{'─'*65}")
-    print(f"{'#':<5}  {'Edited':<22}  {'Raw (mốc cắt)':<22}  {'Dài'}")
-    print(f"{'─'*65}")
-    for i, seg in enumerate(segments, 1):
-        print(
-            f"  {i:<3}  "
-            f"{fmt(seg.edited_start)} → {fmt(seg.edited_end)}  "
-            f"{fmt(seg.raw_start)} → {fmt(seg.raw_end)}  "
-            f"{seg.raw_duration:.1f}s"
-        )
-    print(f"{'─'*65}")
-    print(f"  Tổng: {len(segments)} đoạn")
-
-    # Cắt
-    if not args.no_cut:
-        saved = cut_video(args.raw, segments, output_dir, args.buffer)
-
-        elapsed = time.time() - t0
-        print(f"\n{'='*60}")
-        print(f"✅ Hoàn tất! {len(saved)}/{len(segments)} đoạn đã lưu tại:")
-        print(f"   📁 {os.path.abspath(output_dir)}")
-        print(f"⏱️  Tổng thời gian: {elapsed:.0f}s")
+    # Xử lý từng tập raw
+    for i, raw_path in enumerate(args.raw, 1):
+        raw_name = Path(raw_path).stem
+        print(f"\n\n{'='*60}")
+        print(f"▶ XỬ LÝ TẬP {i}/{len(args.raw)}: {Path(raw_path).name}")
         print(f"{'='*60}")
-    else:
-        print("\n(--no-cut: bỏ qua bước cắt video)")
-        generate_previews(args.edited, args.raw, segments, output_dir)
-        elapsed = time.time() - t0
-        print(f"\n{'='*60}")
-        print(f"✅ Hoàn tất! Đã lưu ảnh preview tại:")
-        print(f"   📁 {os.path.abspath(os.path.join(output_dir, 'previews'))}")
-        print(f"⏱️  Tổng thời gian: {elapsed:.0f}s")
-        print(f"{'='*60}")
+        
+        # Xác định thư mục đầu ra giống yêu cầu: video_cut_ten_tap
+        if args.output:
+            out_dir = os.path.join(args.output, f"video_cut_{raw_name}")
+        else:
+            out_dir = str(Path(raw_path).parent / f"video_cut_{raw_name}")
+
+        raw_frames = extract_embeddings(raw_path, args.fps, model, processor, device, f"Raw ({raw_name})", args.batch)
+
+        if len(raw_frames) == 0:
+            print(f"\n❌ BỎ QUA TẬP NÀY: Không đọc được frame nào từ {Path(raw_path).name}")
+            continue
+
+        # 3. So khớp
+        segments = find_matches(edited_frames, raw_frames, args.threshold)
+
+        if not segments:
+            print(f"\n❌ Không tìm thấy cảnh khớp trong tập này.")
+            continue
+
+        # In bảng kết quả
+        print(f"\n{'─'*65}")
+        print(f"{'#':<5}  {'Edited':<22}  {'Raw (mốc cắt)':<22}  {'Dài'}")
+        print(f"{'─'*65}")
+        for j, seg in enumerate(segments, 1):
+            print(
+                f"  {j:<3}  "
+                f"{fmt(seg.edited_start)} → {fmt(seg.edited_end)}  "
+                f"{fmt(seg.raw_start)} → {fmt(seg.raw_end)}  "
+                f"{seg.raw_duration:.1f}s"
+            )
+        print(f"{'─'*65}")
+        print(f"  Tổng: {len(segments)} đoạn trong {raw_name}")
+
+        # Cắt
+        if not args.no_cut:
+            saved = cut_video(raw_path, segments, out_dir, args.buffer)
+            print(f"\n✅ Hoàn tất tập này! Đã lưu {len(saved)} đoạn tại: {os.path.abspath(out_dir)}")
+        else:
+            print("\n(--no-cut: bỏ qua bước cắt video)")
+            generate_previews(args.edited, raw_path, segments, out_dir)
+            print(f"\n✅ Hoàn tất tập này! Đã lưu ảnh preview tại: {os.path.abspath(os.path.join(out_dir, 'previews'))}")
+
+    elapsed = time.time() - t0
+    print(f"\n{'='*60}")
+    print(f"🎉 HOÀN TẤT TOÀN BỘ TRONG {elapsed:.0f}s")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":

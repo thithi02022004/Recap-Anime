@@ -2,6 +2,7 @@ import express from 'express';
 import { spawn, ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PYTHON = process.platform === 'win32' ? 'python' : 'python3';
@@ -31,11 +32,36 @@ app.post('/api/run', (req, res) => {
     return;
   }
 
+  const rawInput = raw.replace(/^"|"$/g, '').trim();
+  let rawFiles: string[] = [];
+
+  try {
+    const stat = fs.statSync(rawInput);
+    if (stat.isDirectory()) {
+      // Quét toàn bộ video trong folder
+      const files = fs.readdirSync(rawInput);
+      const videoExts = ['.mp4', '.mkv', '.webm', '.avi', '.ts', '.mov'];
+      rawFiles = files
+        .filter(f => videoExts.includes(path.extname(f).toLowerCase()))
+        .map(f => path.join(rawInput, f));
+      
+      if (rawFiles.length === 0) {
+        res.status(400).json({ error: `Không tìm thấy file video nào trong thư mục: ${rawInput}` });
+        return;
+      }
+    } else {
+      rawFiles = [rawInput]; // Là một file duy nhất
+    }
+  } catch (err) {
+    // Nếu file chưa tồn tại hoặc lỗi đường dẫn
+    rawFiles = [rawInput];
+  }
+
   const args: string[] = [
     '-u',          // unbuffered stdout – bắt buộc để stream real-time
     ALIGN_PY,
     '--edited', edited.replace(/^"|"$/g, '').trim(),
-    '--raw',    raw.replace(/^"|"$/g, '').trim(),
+    '--raw',    ...rawFiles,
     '--threshold', String(threshold ?? 15),
     '--fps',       String(fps ?? 3),
     '--buffer',    String(buffer ?? 0.5),

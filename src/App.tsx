@@ -189,9 +189,9 @@ export default function App() {
           </Field>
 
           {/* Raw path */}
-          <Field label="📁 Video Raw" hint="Đường dẫn đầy đủ">
+          <Field label="📂 Raw (Tập phim hoặc Thư mục)" hint="Dán link 1 file hoặc link nguyên 1 Thư mục">
             <Input
-              placeholder="D:\Videos\episode01.mp4"
+              placeholder="D:\Videos\Thu_Muc_Chua_Cac_Tap\"
               value={config.raw}
               onChange={v => set('raw', v)}
               disabled={isRunning}
