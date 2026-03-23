@@ -442,6 +442,11 @@ Ví dụ:
     edited_frames = extract_embeddings(args.edited, args.fps, model, processor, device, "Edited", args.batch)
     raw_frames    = extract_embeddings(args.raw,    args.fps, model, processor, device, "Raw",    args.batch)
 
+    if len(edited_frames) == 0 or len(raw_frames) == 0:
+        print("\n❌ LỖI: Không trích xuất được khung hình nào từ một trong 2 video.")
+        print("Có thể file video bị hỏng (0 bytes) hoặc đuôi video (như .webm) không được hỗ trợ xử lý!")
+        sys.exit(1)
+
     # 3. So khớp
     segments = find_matches(edited_frames, raw_frames, args.threshold)
 
